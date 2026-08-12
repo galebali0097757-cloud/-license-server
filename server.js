@@ -31,7 +31,7 @@ function makeKey() {
 }
 function isValidKey(k) { return typeof k === "string" && /^[A-Z0-9-]{8,80}$/.test(k); }
 
-app.use(express.static("public"));
+app.use(express.static("."));
 
 app.get("/health", (_req,res)=>res.json({ok:true,service:"license-server"}));
 
