@@ -1,77 +1,266 @@
-import express from "express";
-import crypto from "node:crypto";
-import Database from "better-sqlite3";
+export default {
+  async fetch(request, env) {
+    const url = new URL(request.url);
 
-const app = express();
-app.use(express.json({ limit: "16kb" }));
-app.use(express.urlencoded({ extended: false }));
+    // Serve the dashboard/static files
+    if (request.method === "GET" && !url.pathname.startsWith("/v1/") && url.pathname !== "/health") {
+      return env.ASSETS.fetch(request);
+    }
 
-const db = new Database(process.env.DB_PATH || "./licenses.db");
-db.pragma("journal_mode = WAL");
-db.exec(`
-CREATE TABLE IF NOT EXISTS licenses (
- id INTEGER PRIMARY KEY AUTOINCREMENT,
- key TEXT NOT NULL UNIQUE,
- status TEXT NOT NULL DEFAULT 'active',
- expires_at TEXT,
- created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
- last_seen_at TEXT
-)`);
+    // Health check
+    if (url.pathname === "/health" && request.method === "GET") {
+      return json({
+        ok: true,
+        service: "license-server"
+      });
+    }
 
-const ADMIN_TOKEN = process.env.ADMIN_TOKEN;
-if (!ADMIN_TOKEN) console.warn("Set ADMIN_TOKEN before internet deployment.");
+    // Admin authentication
+    async function admin(request) {
+      const auth = request.headers.get("Authorization") || "";
+      const token = auth.replace(/^Bearer\s+/i, "");
 
-function admin(req,res,next) {
-  const token = req.get("authorization")?.replace(/^Bearer\s+/i,"") || req.body.admin_token || req.query.admin_token;
-  if (!ADMIN_TOKEN || token !== ADMIN_TOKEN) return res.status(401).json({ok:false,error:"unauthorized"});
-  next();
-}
-function makeKey() {
-  return crypto.randomBytes(12).toString("hex").toUpperCase().match(/.{1,6}/g).join("-");
-}
-function isValidKey(k) { return typeof k === "string" && /^[A-Z0-9-]{8,80}$/.test(k); }
+      return Boolean(env.ADMIN_TOKEN && token === env.ADMIN_TOKEN);
+    }
 
-app.use(express.static("."));
+    // Verify license
+    if (url.pathname === "/v1/license/verify" && request.method === "POST") {
+      try {
+        const body = await request.json();
+        const key = body?.key;
 
-app.get("/health", (_req,res)=>res.json({ok:true,service:"license-server"}));
+        if (!isValidKey(key)) {
+          return json(
+            { ok: false, error: "invalid_key" },
+            400
+          );
+        }
 
-app.post("/v1/license/verify",(req,res)=>{
-  const {key}=req.body||{};
-  if(!isValidKey(key)) return res.status(400).json({ok:false,error:"invalid_key"});
-  const row=db.prepare("SELECT key,status,expires_at FROM licenses WHERE key=?").get(key);
-  if(!row) return res.status(404).json({ok:false,error:"invalid_license"});
-  if(row.status!=="active") return res.status(403).json({ok:false,error:"license_"+row.status});
-  if(row.expires_at && new Date(row.expires_at)<=new Date()){
-    db.prepare("UPDATE licenses SET status='expired' WHERE key=?").run(key);
-    return res.status(403).json({ok:false,error:"license_expired"});
+        const row = await env.DB
+          .prepare(
+            "SELECT key, status, expires_at FROM licenses WHERE key = ?"
+          )
+          .bind(key)
+          .first();
+
+        if (!row) {
+          return json(
+            { ok: false, error: "invalid_license" },
+            404
+          );
+        }
+
+        if (row.status !== "active") {
+          return json(
+            { ok: false, error: "license_" + row.status },
+            403
+          );
+        }
+
+        if (
+          row.expires_at &&
+          new Date(row.expires_at) <= new Date()
+        ) {
+          await env.DB
+            .prepare(
+              "UPDATE licenses SET status = 'expired' WHERE key = ?"
+            )
+            .bind(key)
+            .run();
+
+          return json(
+            { ok: false, error: "license_expired" },
+            403
+          );
+        }
+
+        await env.DB
+          .prepare(
+            "UPDATE licenses SET last_seen_at = datetime('now') WHERE key = ?"
+          )
+          .bind(key)
+          .run();
+
+        return json({
+          ok: true,
+          key: row.key,
+          expires_at: row.expires_at
+        });
+      } catch {
+        return json(
+          { ok: false, error: "server_error" },
+          500
+        );
+      }
+    }
+
+    // List licenses
+    if (
+      url.pathname === "/v1/admin/licenses" &&
+      request.method === "GET"
+    ) {
+      if (!(await admin(request))) {
+        return json(
+          { ok: false, error: "unauthorized" },
+          401
+        );
+      }
+
+      const result = await env.DB
+        .prepare(
+          `SELECT id, key, status, expires_at, created_at, last_seen_at
+           FROM licenses
+           ORDER BY id DESC`
+        )
+        .all();
+
+      return json({
+        ok: true,
+        licenses: result.results || []
+      });
+    }
+
+    // Create license
+    if (
+      url.pathname === "/v1/admin/licenses" &&
+      request.method === "POST"
+    ) {
+      if (!(await admin(request))) {
+        return json(
+          { ok: false, error: "unauthorized" },
+          401
+        );
+      }
+
+      try {
+        const body = await request.json();
+        const days = Number(body?.days);
+
+        if (
+          !Number.isInteger(days) ||
+          days < 1 ||
+          days > 3650
+        ) {
+          return json(
+            { ok: false, error: "invalid_days" },
+            400
+          );
+        }
+
+        const key = makeKey();
+        const expires = new Date(
+          Date.now() + days * 86400000
+        ).toISOString();
+
+        await env.DB
+          .prepare(
+            `INSERT INTO licenses
+             (key, status, expires_at)
+             VALUES (?, 'active', ?)`
+          )
+          .bind(key, expires)
+          .run();
+
+        return json({
+          ok: true,
+          key,
+          expires_at: expires
+        });
+      } catch {
+        return json(
+          { ok: false, error: "server_error" },
+          500
+        );
+      }
+    }
+
+    // Revoke license
+    if (
+      url.pathname.startsWith("/v1/admin/licenses/") &&
+      url.pathname.endsWith("/revoke") &&
+      request.method === "POST"
+    ) {
+      if (!(await admin(request))) {
+        return json(
+          { ok: false, error: "unauthorized" },
+          401
+        );
+      }
+
+      const parts = url.pathname.split("/");
+      const key = decodeURIComponent(parts[4] || "");
+
+      const result = await env.DB
+        .prepare(
+          "UPDATE licenses SET status = 'revoked' WHERE key = ?"
+        )
+        .bind(key)
+        .run();
+
+      return json({
+        ok: result.meta?.changes === 1
+      });
+    }
+
+    // Activate license
+    if (
+      url.pathname.startsWith("/v1/admin/licenses/") &&
+      url.pathname.endsWith("/activate") &&
+      request.method === "POST"
+    ) {
+      if (!(await admin(request))) {
+        return json(
+          { ok: false, error: "unauthorized" },
+          401
+        );
+      }
+
+      const parts = url.pathname.split("/");
+      const key = decodeURIComponent(parts[4] || "");
+
+      const result = await env.DB
+        .prepare(
+          "UPDATE licenses SET status = 'active' WHERE key = ?"
+        )
+        .bind(key)
+        .run();
+
+      return json({
+        ok: result.meta?.changes === 1
+      });
+    }
+
+    return json(
+      { ok: false, error: "not_found" },
+      404
+    );
   }
-  db.prepare("UPDATE licenses SET last_seen_at=CURRENT_TIMESTAMP WHERE key=?").run(key);
-  res.json({ok:true,key:row.key,expires_at:row.expires_at});
-});
+};
 
-app.get("/v1/admin/licenses",admin,(req,res)=>{
-  const rows=db.prepare("SELECT id,key,status,expires_at,created_at,last_seen_at FROM licenses ORDER BY id DESC").all();
-  res.json({ok:true,licenses:rows});
-});
+function json(data, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: {
+      "Content-Type": "application/json; charset=utf-8"
+    }
+  });
+}
 
-app.post("/v1/admin/licenses",admin,(req,res)=>{
-  const days=Number(req.body.days);
-  if(!Number.isInteger(days)||days<1||days>3650) return res.status(400).json({ok:false,error:"invalid_days"});
-  const key=makeKey();
-  const expires=new Date(Date.now()+days*86400000).toISOString();
-  db.prepare("INSERT INTO licenses(key,status,expires_at) VALUES(?,?,?)").run(key,"active",expires);
-  res.json({ok:true,key,expires_at:expires});
-});
+function makeKey() {
+  const bytes = new Uint8Array(12);
+  crypto.getRandomValues(bytes);
 
-app.post("/v1/admin/licenses/:key/revoke",admin,(req,res)=>{
-  const r=db.prepare("UPDATE licenses SET status='revoked' WHERE key=?").run(req.params.key);
-  res.json({ok:r.changes===1});
-});
+  const hex = [...bytes]
+    .map(x => x.toString(16).padStart(2, "0"))
+    .join("")
+    .toUpperCase();
 
-app.post("/v1/admin/licenses/:key/activate",admin,(req,res)=>{
-  const r=db.prepare("UPDATE licenses SET status='active' WHERE key=?").run(req.params.key);
-  res.json({ok:r.changes===1});
-});
+  return hex.match(/.{1,6}/g).join("-");
+}
 
-const port=Number(process.env.PORT||3000);
-app.listen(port, "0.0.0.0", () => console.log(`Dashboard: http://localhost:${port}`));
+function isValidKey(key) {
+  return (
+    typeof key === "string" &&
+    /^[A-Z0-9-]{8,80}$/.test(key)
+  );
+}
