@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>License Dashboard</title>
+<style>
+body{font-family:system-ui;background:#f4f6f8;margin:0;color:#17202a}
+.wrap{max-width:1050px;margin:30px auto;padding:0 16px}
+.card{background:#fff;border-radius:14px;padding:20px;margin-bottom:18px;box-shadow:0 3px 15px #0001}
+h1{margin-top:0}input,button{padding:11px;border-radius:8px;border:1px solid #ccd3da;font-size:15px}
+input{width:220px}button{cursor:pointer;background:#111;color:#fff}
+button.alt{background:#fff;color:#111}table{width:100%;border-collapse:collapse}th,td{padding:10px;border-bottom:1px solid #eee;text-align:right}
+.badge{padding:4px 8px;border-radius:20px;background:#eee}.active{background:#d9f7df}.revoked,.expired{background:#ffdcdc}
+#app{display:none}.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.msg{margin-top:10px}
+</style>
+</head>
+<body><div class="wrap">
+<div id="login" class="card"><h1>لوحة تحكم التراخيص</h1>
+<div class="row"><input id="token" type="password" placeholder="Admin Token"><button onclick="login()">دخول</button></div>
+<div id="loginMsg" class="msg"></div></div>
+<div id="app">
+<div class="card"><h1>License Dashboard</h1>
+<div class="row"><input id="days" type="number" min="1" max="3650" value="30"><button onclick="createKey()">إنشاء License</button><button class="alt" onclick="load()">تحديث</button></div>
+<div id="msg" class="msg"></div></div>
+<div class="card"><table><thead><tr><th>Key</th><th>الحالة</th><th>ينتهي</th><th>آخر استخدام</th><th>إجراء</th></tr></thead>
+<tbody id="rows"></tbody></table></div>
+</div></div>
+<script>
+let token="";
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+async function api(url,opt={}){opt.headers={...(opt.headers||{}),"Authorization":"Bearer "+token,"Content-Type":"application/json"};const r=await fetch(url,opt);const j=await r.json();if(!r.ok)throw Error(j.error||"request_failed");return j}
+async function login(){token=document.getElementById("token").value;try{await api("/v1/admin/licenses");document.getElementById("login").style.display="none";document.getElementById("app").style.display="block";load()}catch(e){document.getElementById("loginMsg").textContent="بيانات الدخول غير صحيحة";token=""}}
+async function load(){try{const j=await api("/v1/admin/licenses");document.getElementById("rows").innerHTML=j.licenses.map(x=>`<tr><td><code>${esc(x.key)}</code></td><td><span class="badge ${esc(x.status)}">${esc(x.status)}</span></td><td>${esc(x.expires_at||"-")}</td><td>${esc(x.last_seen_at||"-")}</td><td>${x.status==="active"?`<button onclick="revoke('${esc(x.key)}')">Revoke</button>`:`<button onclick="activate('${esc(x.key)}')">Activate</button>`}</td></tr>`).join("")}catch(e){msg(e.message)}}
+async function createKey(){try{const days=Number(document.getElementById("days").value);const j=await api("/v1/admin/licenses",{method:"POST",body:JSON.stringify({days})});msg("تم إنشاء: "+j.key+" | ينتهي: "+j.expires_at);load()}catch(e){msg(e.message)}}
+async function revoke(k){if(!confirm("إلغاء هذا المفتاح؟"))return;try{await api("/v1/admin/licenses/"+encodeURIComponent(k)+"/revoke",{method:"POST",body:"{}"});load()}catch(e){msg(e.message)}}
+async function activate(k){try{await api("/v1/admin/licenses/"+encodeURIComponent(k)+"/activate",{method:"POST",body:"{}"});load()}catch(e){msg(e.message)}}
+function msg(t){document.getElementById("msg").textContent=t}
+</script>
+</body></html>
