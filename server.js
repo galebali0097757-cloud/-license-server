@@ -74,4 +74,4 @@ app.post("/v1/admin/licenses/:key/activate",admin,(req,res)=>{
 });
 
 const port=Number(process.env.PORT||3000);
-app.listen(port,()=>console.log(`Dashboard: http://localhost:${port}`));
+app.listen(port, "0.0.0.0", () => console.log(`Dashboard: http://localhost:${port}`));
