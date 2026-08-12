@@ -1,25 +1,7 @@
-{
-  "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "license-server",
-  "main": "server.js",
-  "compatibility_date": "2026-08-12",
-  "assets": {
-    "directory": ".",
-    "binding": "ASSETS",
-    "exclude": [
-      "node_modules/**",
-      ".git/**",
-      "*.db",
-      "*.db-*",
-      "server.js",
-      "wrangler.jsonc"
-    ]
-  },
-  "d1_databases": [
-    {
-      "binding": "DB",
-      "database_name": "license-db",
-      "database_id": "ضع-DATABASE-ID-هنا"
-    }
-  ]
-}
+"d1_databases": [
+  {
+    "binding": "DB",
+    "database_name": "license-db",
+    "database_id": "20451793-3f89-4452-8c6f-2908b3356fc8"
+  }
+]
