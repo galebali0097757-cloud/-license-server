@@ -9,11 +9,12 @@ export default {
 
     // Health check
     if (url.pathname === "/health" && request.method === "GET") {
-      return json({
-        ok: true,
-        service: "license-server"
-      });
-    }
+  return json({
+    ok: true,
+    service: "license-server",
+    admin_token_configured: Boolean(env.ADMIN_TOKEN)
+  });
+}
 
     // Admin authentication
     async function admin(request) {
