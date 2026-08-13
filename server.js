@@ -3,29 +3,39 @@ export default {
     const url = new URL(request.url);
 
     // Serve the dashboard/static files
-    if (request.method === "GET" && !url.pathname.startsWith("/v1/") && url.pathname !== "/health") {
+    if (
+      request.method === "GET" &&
+      !url.pathname.startsWith("/v1/") &&
+      url.pathname !== "/health"
+    ) {
       return env.ASSETS.fetch(request);
     }
 
     // Health check
     if (url.pathname === "/health" && request.method === "GET") {
-  return json({
-    ok: true,
-    service: "license-server",
-    admin_token_configured: Boolean(env.ADMIN_TOKEN)
-  });
-}
+      return json({
+        ok: true,
+        service: "license-server",
+        admin_token_configured: Boolean(env.ADMIN_TOKEN)
+      });
+    }
 
     // Admin authentication
     async function admin(request) {
       const auth = request.headers.get("Authorization") || "";
       const token = auth.replace(/^Bearer\s+/i, "");
 
-      return Boolean(env.ADMIN_TOKEN && token === env.ADMIN_TOKEN);
+      return Boolean(
+        env.ADMIN_TOKEN &&
+        token.trim() === env.ADMIN_TOKEN.trim()
+      );
     }
 
     // Verify license
-    if (url.pathname === "/v1/license/verify" && request.method === "POST") {
+    if (
+      url.pathname === "/v1/license/verify" &&
+      request.method === "POST"
+    ) {
       try {
         const body = await request.json();
         const key = body?.key;
@@ -149,6 +159,7 @@ export default {
         }
 
         const key = makeKey();
+
         const expires = new Date(
           Date.now() + days * 86400000
         ).toISOString();
