@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "license-server",
+  "name": "vip-reaper",
   "main": "server.js",
   "compatibility_date": "2026-08-12",
   "assets": {
@@ -12,7 +12,8 @@
       "*.db",
       "*.db-*",
       "server.js",
-      "wrangler.jsonc"
+      "wrangler.jsonc",
+      "migrations/**"
     ]
   },
   "d1_databases": [
@@ -21,6 +22,10 @@
       "database_name": "license-db",
       "database_id": "20451793-3f89-4452-8c6f-2908b3356fc8"
     }
-  ]
+  ],
+  "triggers": {
+    "crons": [
+      "*/15 * * * *"
+    ]
+  }
 }
-
