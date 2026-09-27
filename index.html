@@ -1,44 +1,1086 @@
 <!doctype html>
 <html lang="ar" dir="rtl">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>VIP REAPER License Dashboard</title>
-<style>
-body{font-family:system-ui;background:#101216;margin:0;color:#eef2f6}.wrap{max-width:1250px;margin:28px auto;padding:0 16px}
-.card{background:#191d24;border:1px solid #2b313b;border-radius:16px;padding:20px;margin-bottom:18px}
-h1{margin:0 0 16px}input,select,button{padding:10px;border-radius:9px;border:1px solid #3a424e;font-size:14px}
-input,select{background:#11151b;color:#fff}button{cursor:pointer;background:#fff;color:#111;font-weight:700}
-button.danger{background:#a92828;color:#fff;border:0}.alt{background:#303844;color:#fff}
-.row{display:flex;gap:9px;flex-wrap:wrap;align-items:center}.msg{margin-top:12px;word-break:break-word}
-#app{display:none}.grid{display:grid;grid-template-columns:1fr;gap:18px}
-table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:9px;border-bottom:1px solid #303640;text-align:right;vertical-align:middle}
-code{user-select:all}.badge{padding:4px 8px;border-radius:20px;background:#333}.active{background:#174b2a}.revoked{background:#672626}
-.small{opacity:.75;font-size:12px}.scroll{overflow:auto}.actions{display:flex;gap:5px;flex-wrap:wrap}
-</style></head>
-<body><div class="wrap">
-<div id="login" class="card"><h1>VIP-REAPER</h1><div class="row"><input id="token" type="password" placeholder="Admin Token"><button onclick="login()">دخول</button></div><div id="loginMsg" class="msg"></div></div>
-<div id="app">
-<div class="card"><h1>إدارة التراخيص</h1>
-<div class="row">
-<input id="duration" type="number" min="1" value="1" placeholder="المدة">
-<select id="unit"><option value="hours">ساعة/ساعات</option><option value="days">يوم/أيام</option></select>
-<select id="mode"><option value="single_device">هاتف واحد</option><option value="unlimited_devices">جميع الهواتف</option></select>
-<button onclick="createKey()">إنشاء مفتاح</button><button class="alt" onclick="load()">تحديث</button>
-</div><div id="msg" class="msg"></div></div>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 
-<div class="card"><h2>مفاتيح هاتف واحد</h2><div class="scroll"><table><thead><tr><th>المفتاح</th><th>الحالة</th><th>المدة</th><th>الانتهاء</th><th>الجهاز</th><th>آخر استخدام</th><th>الإجراءات</th></tr></thead><tbody id="singleRows"></tbody></table></div></div>
-<div class="card"><h2>مفاتيح جميع الهواتف</h2><div class="scroll"><table><thead><tr><th>المفتاح</th><th>الحالة</th><th>المدة</th><th>الانتهاء</th><th>آخر استخدام</th><th>الإجراءات</th></tr></thead><tbody id="allRows"></tbody></table></div></div>
-</div></div>
+<title>VIP REAPER License Dashboard</title>
+
+<style>
+body{
+  font-family:system-ui;
+  background:#101216;
+  margin:0;
+  color:#eef2f6
+}
+
+.wrap{
+  max-width:1250px;
+  margin:28px auto;
+  padding:0 16px
+}
+
+.card{
+  background:#191d24;
+  border:1px solid #2b313b;
+  border-radius:16px;
+  padding:20px;
+  margin-bottom:18px
+}
+
+h1{
+  margin:0 0 16px
+}
+
+input,select,button{
+  padding:10px;
+  border-radius:9px;
+  border:1px solid #3a424e;
+  font-size:14px
+}
+
+input,select{
+  background:#11151b;
+  color:#fff
+}
+
+button{
+  cursor:pointer;
+  background:#fff;
+  color:#111;
+  font-weight:700
+}
+
+button.danger{
+  background:#a92828;
+  color:#fff;
+  border:0
+}
+
+button.alt{
+  background:#303844;
+  color:#fff
+}
+
+button.success{
+  background:#19713a;
+  color:#fff;
+  border:0
+}
+
+.row{
+  display:flex;
+  gap:9px;
+  flex-wrap:wrap;
+  align-items:center
+}
+
+.msg{
+  margin-top:12px;
+  word-break:break-word
+}
+
+#app{
+  display:none
+}
+
+table{
+  width:100%;
+  border-collapse:collapse;
+  font-size:13px
+}
+
+th,td{
+  padding:9px;
+  border-bottom:1px solid #303640;
+  text-align:right;
+  vertical-align:middle
+}
+
+code{
+  user-select:all
+}
+
+.badge{
+  padding:4px 8px;
+  border-radius:20px;
+  background:#333
+}
+
+.active{
+  background:#174b2a
+}
+
+.revoked{
+  background:#672626
+}
+
+.small{
+  opacity:.75;
+  font-size:12px
+}
+
+.scroll{
+  overflow:auto
+}
+
+.actions{
+  display:flex;
+  gap:5px;
+  flex-wrap:wrap
+}
+
+/* البحث */
+
+.search{
+  min-width:280px;
+  flex:1
+}
+
+/* الصيانة */
+
+.maintenance{
+  border-color:#5d4920
+}
+
+.maintenance.on{
+  border-color:#a92828;
+  background:#241719
+}
+
+.state{
+  font-weight:800
+}
+
+.state.on{
+  color:#ff7777
+}
+
+.state.off{
+  color:#62dc8c
+}
+</style>
+</head>
+
+<body>
+
+<div class="wrap">
+
+<!-- تسجيل الدخول -->
+
+<div id="login" class="card">
+
+<h1>VIP-REAPER</h1>
+
+<div class="row">
+
+<input
+  id="token"
+  type="password"
+  placeholder="Admin Token"
+>
+
+<button onclick="login()">
+دخول
+</button>
+
+</div>
+
+<div
+  id="loginMsg"
+  class="msg">
+</div>
+
+</div>
+
+
+<div id="app">
+
+
+<!-- ================================= -->
+<!-- حالة السيرفر -->
+<!-- ================================= -->
+
+<div
+  id="maintenanceCard"
+  class="card maintenance"
+>
+
+<h2>حالة السيرفر</h2>
+
+<div class="row">
+
+<span>
+الحالة:
+<span
+  id="maintenanceState"
+  class="state">
+...
+</span>
+</span>
+
+<button
+  id="maintenanceBtn"
+  class="danger"
+  onclick="toggleMaintenance()"
+>
+إيقاف السيرفر للصيانة
+</button>
+
+</div>
+
+<div
+  class="small"
+  style="margin-top:10px"
+>
+عند تفعيل الصيانة سيتم إيقاف عمليات التحقق من المفاتيح، وسيتم إرسال رسالة الصيانة للتطبيق.
+</div>
+
+<div
+  id="maintenanceMsg"
+  class="msg">
+</div>
+
+</div>
+
+
+<!-- ================================= -->
+<!-- إنشاء مفتاح -->
+<!-- ================================= -->
+
+<div class="card">
+
+<h1>إدارة التراخيص</h1>
+
+<div class="row">
+
+<input
+  id="duration"
+  type="number"
+  min="1"
+  value="1"
+  placeholder="المدة"
+>
+
+<select id="unit">
+
+<option value="hours">
+ساعة/ساعات
+</option>
+
+<option value="days">
+يوم/أيام
+</option>
+
+</select>
+
+
+<select id="mode">
+
+<option value="single_device">
+هاتف واحد
+</option>
+
+<option value="unlimited_devices">
+جميع الهواتف
+</option>
+
+</select>
+
+
+<button onclick="createKey()">
+إنشاء مفتاح
+</button>
+
+<button
+  class="alt"
+  onclick="load()"
+>
+تحديث
+</button>
+
+</div>
+
+<div
+  id="msg"
+  class="msg">
+</div>
+
+</div>
+
+
+<!-- ================================= -->
+<!-- البحث -->
+<!-- ================================= -->
+
+<div class="card">
+
+<h2>🔎 البحث عن مفتاح</h2>
+
+<div class="row">
+
+<input
+  id="search"
+  class="search"
+  type="search"
+  placeholder="اكتب المفتاح كاملاً أو جزءاً منه..."
+  oninput="searchChanged()"
+>
+
+<button
+  class="alt"
+  onclick="clearSearch()"
+>
+مسح البحث
+</button>
+
+</div>
+
+<div
+  id="searchInfo"
+  class="small"
+  style="margin-top:10px"
+>
+</div>
+
+</div>
+
+
+<!-- ================================= -->
+<!-- مفاتيح هاتف واحد -->
+<!-- ================================= -->
+
+<div class="card">
+
+<h2>مفاتيح هاتف واحد</h2>
+
+<div class="scroll">
+
+<table>
+
+<thead>
+
+<tr>
+
+<th>المفتاح</th>
+<th>الحالة</th>
+<th>المدة</th>
+<th>الانتهاء</th>
+<th>الجهاز</th>
+<th>آخر استخدام</th>
+<th>الإجراءات</th>
+
+</tr>
+
+</thead>
+
+<tbody id="singleRows">
+</tbody>
+
+</table>
+
+</div>
+
+</div>
+
+
+<!-- ================================= -->
+<!-- مفاتيح جميع الهواتف -->
+<!-- ================================= -->
+
+<div class="card">
+
+<h2>مفاتيح جميع الهواتف</h2>
+
+<div class="scroll">
+
+<table>
+
+<thead>
+
+<tr>
+
+<th>المفتاح</th>
+<th>الحالة</th>
+<th>المدة</th>
+<th>الانتهاء</th>
+<th>آخر استخدام</th>
+<th>الإجراءات</th>
+
+</tr>
+
+</thead>
+
+<tbody id="allRows">
+</tbody>
+
+</table>
+
+</div>
+
+</div>
+
+
+</div>
+</div>
+
+
 <script>
-let token="";
-const $=id=>document.getElementById(id);
-const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-async function api(url,opt={}){opt.headers={...(opt.headers||{}),"Authorization":"Bearer "+token,"Content-Type":"application/json"};const r=await fetch(url,opt);let j={};try{j=await r.json()}catch{}if(!r.ok)throw Error(j.error||"request_failed");return j}
-async function login(){token=$("token").value;try{await api("/v1/admin/licenses");$("login").style.display="none";$("app").style.display="block";load()}catch(e){$("loginMsg").textContent="بيانات الدخول غير صحيحة";token=""}}
-function acts(x){return `<div class="actions">${x.status==="active"?`<button class="danger" onclick="act('${esc(x.key)}','revoke')">إيقاف</button>`:`<button onclick="act('${esc(x.key)}','activate')">تفعيل</button>`}<button class="alt" onclick="act('${esc(x.key)}','reset-license')">Reset</button>${x.device_mode==="single_device"?`<button class="alt" onclick="act('${esc(x.key)}','reset-device')">Reset Device</button>`:""}<button class="danger" onclick="act('${esc(x.key)}','delete')">حذف</button></div>`}
-function row(x,single){return `<tr><td><code>${esc(x.key)}</code></td><td><span class="badge ${esc(x.status)}">${esc(x.status)}</span></td><td>${esc(x.duration_value)} ${x.duration_unit==="days"?"يوم":"ساعة"}</td><td>${esc(x.expires_at||"-")}</td>${single?`<td>${x.device_bound?"مرتبط":"غير مرتبط"}</td>`:""}<td>${esc(x.last_seen_at||"-")}</td><td>${acts(x)}</td></tr>`}
-async function load(){try{const j=await api("/v1/admin/licenses");$("singleRows").innerHTML=j.licenses.filter(x=>x.device_mode==="single_device").map(x=>row(x,true)).join("");$("allRows").innerHTML=j.licenses.filter(x=>x.device_mode==="unlimited_devices").map(x=>row(x,false)).join("")}catch(e){msg(e.message)}}
-async function createKey(){try{const body={duration_value:Number($("duration").value),duration_unit:$("unit").value,device_mode:$("mode").value};const j=await api("/v1/admin/licenses",{method:"POST",body:JSON.stringify(body)});msg("تم إنشاء: "+j.key+" | ينتهي: "+j.expires_at);load()}catch(e){msg(e.message)}}
-async function act(k,a){if((a==="delete"||a==="revoke"||a==="reset-license"||a==="reset-device")&&!confirm("تأكيد العملية؟"))return;try{await api("/v1/admin/licenses/"+encodeURIComponent(k)+"/"+a,{method:"POST",body:"{}"});load()}catch(e){msg(e.message)}}
-function msg(t){$("msg").textContent=t}
-</script></body></html>
+
+let token = "";
+
+let maintenanceEnabled = false;
+
+let searchTimer = null;
+
+
+const $ = id =>
+  document.getElementById(id);
+
+
+const esc = s =>
+  String(s ?? "")
+  .replace(
+    /[&<>"']/g,
+    c => ({
+      "&":"&amp;",
+      "<":"&lt;",
+      ">":"&gt;",
+      '"':"&quot;",
+      "'":"&#39;"
+    }[c])
+  );
+
+
+// =================================
+// API
+// =================================
+
+async function api(
+  url,
+  opt = {}
+){
+
+  opt.headers = {
+    ...(opt.headers || {}),
+    "Authorization":
+      "Bearer " + token,
+    "Content-Type":
+      "application/json"
+  };
+
+  const r =
+    await fetch(
+      url,
+      opt
+    );
+
+  let j = {};
+
+  try{
+    j = await r.json();
+  }catch{}
+
+  if(!r.ok){
+    throw Error(
+      j.error ||
+      "request_failed"
+    );
+  }
+
+  return j;
+}
+
+
+// =================================
+// تسجيل الدخول
+// =================================
+
+async function login(){
+
+  token =
+    $("token").value;
+
+  try{
+
+    await api(
+      "/v1/admin/licenses"
+    );
+
+    $("login").style.display =
+      "none";
+
+    $("app").style.display =
+      "block";
+
+    await Promise.all([
+      load(),
+      loadMaintenance()
+    ]);
+
+  }catch(e){
+
+    $("loginMsg").textContent =
+      "بيانات الدخول غير صحيحة";
+
+    token = "";
+
+  }
+}
+
+
+// =================================
+// أزرار المفتاح
+// =================================
+
+function acts(x){
+
+  return `
+  <div class="actions">
+
+  ${
+    x.status === "active"
+    ?
+    `
+    <button
+      class="danger"
+      onclick="act(
+        '${esc(x.key)}',
+        'revoke'
+      )"
+    >
+    إيقاف
+    </button>
+    `
+    :
+    `
+    <button
+      onclick="act(
+        '${esc(x.key)}',
+        'activate'
+      )"
+    >
+    تفعيل
+    </button>
+    `
+  }
+
+  <button
+    class="alt"
+    onclick="act(
+      '${esc(x.key)}',
+      'reset-license'
+    )"
+  >
+  Reset
+  </button>
+
+  ${
+    x.device_mode ===
+      "single_device"
+    ?
+    `
+    <button
+      class="alt"
+      onclick="act(
+        '${esc(x.key)}',
+        'reset-device'
+      )"
+    >
+    Reset Device
+    </button>
+    `
+    :
+    ""
+  }
+
+  <button
+    class="danger"
+    onclick="act(
+      '${esc(x.key)}',
+      'delete'
+    )"
+  >
+  حذف
+  </button>
+
+  </div>
+  `;
+}
+
+
+// =================================
+// صف المفتاح
+// =================================
+
+function row(
+  x,
+  single
+){
+
+  return `
+  <tr>
+
+  <td>
+  <code>
+  ${esc(x.key)}
+  </code>
+  </td>
+
+  <td>
+  <span
+    class="badge ${esc(x.status)}"
+  >
+  ${esc(x.status)}
+  </span>
+  </td>
+
+  <td>
+  ${esc(x.duration_value)}
+  ${
+    x.duration_unit === "days"
+      ? "يوم"
+      : "ساعة"
+  }
+  </td>
+
+  <td>
+  ${esc(
+    x.expires_at || "-"
+  )}
+  </td>
+
+  ${
+    single
+      ?
+      `
+      <td>
+      ${
+        x.device_bound
+          ? "مرتبط"
+          : "غير مرتبط"
+      }
+      </td>
+      `
+      :
+      ""
+  }
+
+  <td>
+  ${esc(
+    x.last_seen_at || "-"
+  )}
+  </td>
+
+  <td>
+  ${acts(x)}
+  </td>
+
+  </tr>
+  `;
+}
+
+
+// =================================
+// تحميل المفاتيح + البحث
+// =================================
+
+async function load(){
+
+  try{
+
+    const q =
+      $("search")
+      ?.value
+      .trim() || "";
+
+    const url =
+      "/v1/admin/licenses" +
+      (
+        q
+          ?
+          "?q=" +
+          encodeURIComponent(q)
+          :
+          ""
+      );
+
+    const j =
+      await api(url);
+
+    const single =
+      j.licenses.filter(
+        x =>
+          x.device_mode ===
+          "single_device"
+      );
+
+    const all =
+      j.licenses.filter(
+        x =>
+          x.device_mode ===
+          "unlimited_devices"
+      );
+
+
+    $("singleRows").innerHTML =
+      single
+      .map(
+        x =>
+          row(
+            x,
+            true
+          )
+      )
+      .join("");
+
+
+    $("allRows").innerHTML =
+      all
+      .map(
+        x =>
+          row(
+            x,
+            false
+          )
+      )
+      .join("");
+
+
+    if(q){
+
+      $("searchInfo").textContent =
+        "نتائج البحث: " +
+        j.licenses.length;
+
+    }else{
+
+      $("searchInfo").textContent =
+        "إجمالي المفاتيح: " +
+        j.licenses.length;
+
+    }
+
+  }catch(e){
+
+    msg(e.message);
+
+  }
+}
+
+
+// =================================
+// البحث الفوري
+// =================================
+
+function searchChanged(){
+
+  clearTimeout(
+    searchTimer
+  );
+
+  searchTimer =
+    setTimeout(
+      load,
+      250
+    );
+}
+
+
+function clearSearch(){
+
+  $("search").value = "";
+
+  load();
+}
+
+
+// =================================
+// قراءة حالة الصيانة
+// =================================
+
+async function loadMaintenance(){
+
+  try{
+
+    const j =
+      await api(
+        "/v1/admin/maintenance"
+      );
+
+    maintenanceEnabled =
+      Boolean(j.enabled);
+
+    renderMaintenance(
+      j.message
+    );
+
+  }catch(e){
+
+    $("maintenanceMsg")
+      .textContent =
+      e.message;
+
+  }
+}
+
+
+// =================================
+// عرض حالة الصيانة
+// =================================
+
+function renderMaintenance(
+  message = ""
+){
+
+  const state =
+    $("maintenanceState");
+
+  const btn =
+    $("maintenanceBtn");
+
+  const card =
+    $("maintenanceCard");
+
+
+  if(
+    maintenanceEnabled
+  ){
+
+    state.textContent =
+      "متوقف للصيانة";
+
+    state.className =
+      "state on";
+
+
+    btn.textContent =
+      "تشغيل السيرفر";
+
+    btn.className =
+      "success";
+
+
+    card.classList.add(
+      "on"
+    );
+
+
+    $("maintenanceMsg")
+      .textContent =
+      message ||
+      "السيرفر قيد الصيانة";
+
+
+  }else{
+
+    state.textContent =
+      "يعمل";
+
+    state.className =
+      "state off";
+
+
+    btn.textContent =
+      "إيقاف السيرفر للصيانة";
+
+    btn.className =
+      "danger";
+
+
+    card.classList.remove(
+      "on"
+    );
+
+
+    $("maintenanceMsg")
+      .textContent =
+      "";
+
+  }
+}
+
+
+// =================================
+// تشغيل / إيقاف السيرفر
+// =================================
+
+async function toggleMaintenance(){
+
+  const next =
+    !maintenanceEnabled;
+
+
+  const question =
+    next
+      ?
+      "هل تريد إيقاف التحقق من المفاتيح ووضع السيرفر في حالة الصيانة؟"
+      :
+      "هل تريد تشغيل السيرفر وإنهاء حالة الصيانة؟";
+
+
+  if(
+    !confirm(question)
+  ){
+    return;
+  }
+
+
+  try{
+
+    const j =
+      await api(
+        "/v1/admin/maintenance",
+        {
+          method:"POST",
+
+          body:
+            JSON.stringify(
+              {
+                enabled:next,
+
+                message:
+                "السيرفر قيد الصيانة، الرجاء التحلي بالصبر حتى يتم إضافة الإصلاحات"
+              }
+            )
+        }
+      );
+
+
+    maintenanceEnabled =
+      Boolean(j.enabled);
+
+
+    renderMaintenance(
+      j.message
+    );
+
+
+  }catch(e){
+
+    $("maintenanceMsg")
+      .textContent =
+      e.message;
+
+  }
+}
+
+
+// =================================
+// إنشاء مفتاح
+// =================================
+
+async function createKey(){
+
+  try{
+
+    const body = {
+
+      duration_value:
+        Number(
+          $("duration").value
+        ),
+
+      duration_unit:
+        $("unit").value,
+
+      device_mode:
+        $("mode").value
+
+    };
+
+
+    const j =
+      await api(
+        "/v1/admin/licenses",
+        {
+          method:"POST",
+
+          body:
+            JSON.stringify(
+              body
+            )
+        }
+      );
+
+
+    msg(
+      "تم إنشاء: " +
+      j.key +
+      " | ينتهي: " +
+      j.expires_at
+    );
+
+
+    load();
+
+
+  }catch(e){
+
+    msg(e.message);
+
+  }
+}
+
+
+// =================================
+// إجراءات المفاتيح
+// =================================
+
+async function act(
+  k,
+  a
+){
+
+  if(
+    (
+      a === "delete" ||
+      a === "revoke" ||
+      a === "reset-license" ||
+      a === "reset-device"
+    )
+    &&
+    !confirm(
+      "تأكيد العملية؟"
+    )
+  ){
+    return;
+  }
+
+
+  try{
+
+    await api(
+      "/v1/admin/licenses/" +
+      encodeURIComponent(k) +
+      "/" +
+      a,
+      {
+        method:"POST",
+        body:"{}"
+      }
+    );
+
+
+    load();
+
+
+  }catch(e){
+
+    msg(e.message);
+
+  }
+}
+
+
+function msg(t){
+
+  $("msg").textContent =
+    t;
+
+}
+
+</script>
+
+</body>
+</html>
