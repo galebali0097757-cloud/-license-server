@@ -25,7 +25,8 @@ const worker = {
         ok: true,
         service: "vip-reaper",
         admin_token_configured: Boolean(env.ADMIN_TOKEN),
-        maintenance: maintenance.enabled
+        maintenance: maintenance.enabled,
+        bootstrap: await bootstrapHealth(env)
       });
     }
 
@@ -918,4 +919,25 @@ async function handleV85(request,env,verify){
     if(!object||!object.body||object.size!==c.chunks[Number(match[1])].blob_size)return reply(503);
     return new Response(object.body,{status:200,headers:{...headers,'Content-Length':String(object.size)}});
   }catch{return reply(503);}
+}
+
+async function bootstrapHealth(env) {
+  const configured = Boolean(env.REAPER_PAYLOADS && env.DB && env.REAPER_SIGNING_KEY_PKCS8 && env.REAPER_CATALOG_JSON);
+  const result = { configured, signing_valid: false, payloads_ready: false, database_ready: false };
+  if (!configured) return result;
+  let c;
+  try { ({ c } = await settings(env)); result.signing_valid = true; } catch { return result; }
+  try {
+    result.payloads_ready = true;
+    for (let i = 0; i < 4; i++) {
+      const object = await env.REAPER_PAYLOADS.head(`${BUILD}/payload-${i}.bin`);
+      if (!object || object.size !== c.chunks[i].blob_size) result.payloads_ready = false;
+    }
+  } catch { result.payloads_ready = false; }
+  try {
+    await env.DB.prepare('SELECT identity FROM reaper_v85_nonces LIMIT 1').all();
+    await env.DB.prepare('SELECT token_hash FROM reaper_v85_sessions LIMIT 1').all();
+    result.database_ready = true;
+  } catch {}
+  return result;
 }
