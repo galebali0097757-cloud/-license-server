@@ -1,14 +1,121 @@
+const {handleV86,operationalHealth}=(()=>{
+// Operational configuration is encrypted at rest; only the existing Worker signing secret can open it.
+const SEALED_OPERATIONAL_CONFIG={"version":1,"salt":"dce1f1e9920b66c6d1d0760723188d2c","iv":"5b9cc4bb636adea14ff36af6","data":"gE0QRBZ+H7VYEt7uq/fzT1qJ1qejiK1eTbzNnwSdwVaTwOMZ0jgyM57UIKeXtw/9RxeJRil+fpmo+mICxBHW6BFMMxxwdzQv0WBzlPkGp0LDDgP+eA4fKfDHN8y4xhrGZXxUil1GghwEeBzIw1Tdhoz8i0pHkcxbHWoi+wUrrDXRkgQhAXFMdKxu/l6/YrT0YHkIB/T7VQW6H52cLsnrck12ruVVNYWN5NBo8qPTUwcZmfgSXfLREVkPDUModTzH8Vdw75S3yC46KJz0wfd1sNXvMyT8gghC60LrR3HqklBxqjAUvSbSJQiom58eSsPk04caXbAsiMhGqhG+ZZHKzMXft+bTe3go7GO8K8MFNU76MBF3+ett7BJflZqxXRy+s85Mw6zJ/KWMwRfR3XXTpgSmyLnJQl82ITwqw01D2G+PfEyCizNsc0Qs1LuJ42Hwgs5lTO//h/H1uo2jEO975myyA0fZd+ZQoU/lZJF+5Si5KNzN6O+ZW3sKRQFkWED+FPvSEFDETZhnRzRJOIaciFHFqhwCGGd9xh+9S/bCVpziivSMy/A5/LF2VItzLS3Afs9Gw0ZFp6R9vNQmdzhnsS7NSyZnYTrOb+1pHWJa55fj9Yyhct7l12j6oPRQ5Op90qlhxiZr8xdKVi+tSoJaoQkbjyvzXBJm9+LihVUtCfG9Igh3HpO8y1N9iMgpq76U4pFfLfgrzhiFTPCRd9h8fTwIL6FguOUJ/UVufjS+nCdO0zEPybuBkvlFBASniPk9v1i8HgO5/J2dtiRWoHlh+yTtgB7kROqgRcE13chfLuvD9zXN67NnoAuCOpqFjhAsakvz7/A/eHNBmNyRoD3wdrK1V7NU8dmhx5NtSjWHWoCC2UJKlUCnOXcfFZmJihEjybA2wP7sHgHXVhp3DM6kyD7W4FBFXaJpg84rSA8QA+anEQn7VgwFflhN2OLHar6Su1r7ro/a8IJdjLcms4sXoFbIK/tCeE0bBXsWx+KOaTCEMg22uL3pVSZxPR5arwQLeiqrgJvYI5ak3ICMzLuRJzlfOP3qwLDpf/dGEB0436QwYN5pScxzrxNHRUyoA3sKhjUOIiXiYJihlSdJewXMna/yIxiSA6ElxE5brnZGyCgD9xthCIs8pAa/5dUw3SGQqZTJe9gnpCjbmQ=="};
+const COUNT=65,START=216,SIZE=START+COUNT*8;
+const encoder=new TextEncoder();
+const headers={'Content-Type':'application/octet-stream','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'};
+const reply=(status,body=null)=>new Response(body,{status,headers:body?{...headers,'Content-Length':String(body.byteLength)}:headers});
+const hex=b=>Array.from(b,x=>x.toString(16).padStart(2,'0')).join('');
+function unhex(s,n){if(typeof s!=='string'||!new RegExp(`^[0-9a-f]{${n*2}}$`).test(s))throw Error('hex');return Uint8Array.from(s.match(/../g),x=>parseInt(x,16));}
+async function digest(s){return new Uint8Array(await crypto.subtle.digest('SHA-256',typeof s==='string'?encoder.encode(s):s));}
+function uint(n,max=0xfffffff){if(!Number.isSafeInteger(n)||n<=0||n>max)throw Error('integer');return n;}
+function operationBytes(c){const b=new Uint8Array(COUNT*8),v=new DataView(b.buffer);c.operations.forEach((x,i)=>v.setBigUint64(i*8,BigInt(x),true));return b;}
+async function validateConfig(c){
+  if(!c||c.schema!==2||!Array.isArray(c.operations)||c.operations.length!==COUNT)throw Error('configuration');
+  unhex(c.build_id,16);const uuid=unhex(c.runtime_uuid,16);if(!uuid.some(x=>x))throw Error('uuid');
+  unhex(c.public_key_x963,65);unhex(c.operations_sha256,32);
+  if(uint(c.seed_vm)%4||uint(c.ready_vm)%4||c.seed_vm===c.ready_vm)throw Error('entry');
+  c.operations.forEach((x,i)=>uint(x,i>=36&&i<64?0x10000:0xfffffff));
+  if(c.operations[64]!==180||hex(await digest(operationBytes(c)))!==c.operations_sha256)throw Error('operations');
+  return c;
+}
+function signatureDER(raw){
+  const b=new Uint8Array(raw);if(b.length!==64)throw Error('signature');
+  const integer=p=>{let i=0;while(i<31&&p[i]===0)i++;p=p.slice(i);return [...(p[0]&128?[0]:[]),...p];};
+  const r=integer(b.slice(0,32)),s=integer(b.slice(32));return new Uint8Array([0x30,4+r.length+s.length,2,r.length,...r,2,s.length,...s]);
+}
+async function unsealOperational(der){
+  const sealed=SEALED_OPERATIONAL_CONFIG;
+  if(sealed.version!==1)throw Error('sealed configuration');
+  const info=encoder.encode('REAPER v86 server operational config HKDF-SHA256 AES-256-GCM v1');
+  const material=await crypto.subtle.importKey('raw',der,'HKDF',false,['deriveKey']);
+  const aes=await crypto.subtle.deriveKey({name:'HKDF',hash:'SHA-256',salt:unhex(sealed.salt,16),info},material,{name:'AES-GCM',length:256},false,['decrypt']);
+  const cipher=Uint8Array.from(atob(sealed.data),x=>x.charCodeAt(0));
+  if(cipher.length<17||cipher.length>4096)throw Error('sealed size');
+  const plain=await crypto.subtle.decrypt({name:'AES-GCM',iv:unhex(sealed.iv,12),additionalData:info,tagLength:128},aes,cipher);
+  return new TextDecoder('utf-8',{fatal:true}).decode(plain);
+}
+let cachedJSON,cachedPEM,cachedSettings;
+async function settings(env){
+  const config=env.REAPER_OPERATIONAL_JSON,pem=env.REAPER_SIGNING_KEY_PKCS8;
+  if(!pem||!env.DB||(config!==undefined&&!config))throw Error('configuration');
+  const source=config===undefined?'sealed:'+SEALED_OPERATIONAL_CONFIG.data:config;
+  if(cachedSettings&&cachedJSON===source&&cachedPEM===pem)return cachedSettings;
+  if(!/^-----BEGIN PRIVATE KEY-----\s+[A-Za-z0-9+/=\s]+-----END PRIVATE KEY-----\s*$/.test(pem))throw Error('key');
+  const der=Uint8Array.from(atob(pem.replace(/-----[^-]+-----/g,'').replace(/\s/g,'')),x=>x.charCodeAt(0));
+  const c=await validateConfig(JSON.parse(config===undefined?await unsealOperational(der):config));
+  const key=await crypto.subtle.importKey('pkcs8',der,{name:'ECDSA',namedCurve:'P-256'},false,['sign']);
+  const pub=await crypto.subtle.importKey('raw',unhex(c.public_key_x963,65),{name:'ECDSA',namedCurve:'P-256'},false,['verify']);
+  const probe=encoder.encode('Reaper v86 operational identity');
+  const sig=await crypto.subtle.sign({name:'ECDSA',hash:'SHA-256'},key,probe);
+  if(!await crypto.subtle.verify({name:'ECDSA',hash:'SHA-256'},pub,sig,probe))throw Error('identity');
+  cachedJSON=source;cachedPEM=pem;cachedSettings={c,key};return cachedSettings;
+}
+async function makeOperationalCapsule(c,key,body,issued,expiry){
+  const b=new Uint8Array(SIZE),v=new DataView(b.buffer);
+  const put=(o,x)=>b.set(x,o),u32=(o,x)=>v.setUint32(o,x,true),u64=(o,x)=>v.setBigUint64(o,BigInt(x),true);
+  put(0,encoder.encode('R86BOOT1'));u32(8,2);u32(12,COUNT);put(16,unhex(c.build_id,16));put(32,unhex(body.nonce,32));
+  put(64,await digest(body.device_id));put(96,await digest(body.key));u64(128,issued);u64(136,Math.min(issued+120,expiry));
+  u64(144,expiry);u64(152,c.seed_vm);u64(160,c.ready_vm);put(168,unhex(c.runtime_uuid,16));
+  put(184,unhex(c.operations_sha256,32));put(START,operationBytes(c));
+  const sig=signatureDER(await crypto.subtle.sign({name:'ECDSA',hash:'SHA-256'},key,b));
+  const result=new Uint8Array(SIZE+4+sig.length);result.set(b);new DataView(result.buffer).setUint32(SIZE,sig.length,true);result.set(sig,SIZE+4);return result;
+}
+async function boundedJSON(request){
+  const declared=request.headers.get('Content-Length');
+  if(declared!==null&&(!/^\d+$/.test(declared)||Number(declared)>1024))throw Error('length');
+  if(!request.body)throw Error('body');const reader=request.body.getReader();let size=0,chunks=[];
+  try{while(true){const {value,done}=await reader.read();if(done)break;size+=value.length;if(size>1024){await reader.cancel();throw Error('length');}chunks.push(value);}}
+  finally{reader.releaseLock();}
+  const bytes=new Uint8Array(size);let p=0;for(const chunk of chunks){bytes.set(chunk,p);p+=chunk.length;}
+  return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes));
+}
+function validRequest(b){
+  return b&&!Array.isArray(b)&&typeof b==='object'&&Object.keys(b).sort().join(',')==='build_id,device_id,key,nonce'&&
+    typeof b.key==='string'&&/^[A-Z0-9-]{8,80}$/.test(b.key)&&typeof b.device_id==='string'&&/^[A-Za-z0-9-]{1,180}$/.test(b.device_id)&&
+    typeof b.nonce==='string'&&/^[0-9a-f]{64}$/.test(b.nonce)&&typeof b.build_id==='string'&&/^[0-9a-f]{32}$/.test(b.build_id);
+}
+async function handleV86(request,env,verify){
+  const url=new URL(request.url);if(!url.pathname.startsWith('/v86/'))return null;
+  if(url.search)return reply(400);if(url.pathname!=='/v86/bootstrap')return reply(404);if(request.method!=='POST')return reply(405);
+  let body;try{body=await boundedJSON(request);if(!validRequest(body))return reply(403);}catch{return reply(403);}
+  try{
+    const {c,key}=await settings(env);if(body.build_id!==c.build_id)return reply(403);
+    const auth=await verify(body.key,body.device_id);
+    if(!auth||auth.ok!==true||typeof auth.expires_at!=='string'||!/(Z|[+-]\d{2}:\d{2})$/.test(auth.expires_at))return reply(403);
+    const now=Math.floor(Date.now()/1000),expiry=Math.floor(Date.parse(auth.expires_at)/1000);
+    if(!Number.isSafeInteger(expiry)||expiry<=now)return reply(403);
+    const id=hex(await digest('v86\0'+c.build_id+'\0'+body.device_id+'\0'+body.key+'\0'+body.nonce));
+    await env.DB.prepare('DELETE FROM reaper_v85_nonces WHERE expires <= ?').bind(now).run();
+    const used=await env.DB.prepare('INSERT OR IGNORE INTO reaper_v85_nonces (identity, expires) SELECT ?, ? WHERE (SELECT COUNT(*) FROM reaper_v85_nonces) < 4096').bind(id,Math.min(now+120,expiry)).run();
+    if(used.meta?.changes!==1)return reply(403);
+    return reply(200,await makeOperationalCapsule(c,key,body,now,expiry));
+  }catch{return reply(503);}
+}
+async function operationalHealth(env){
+  const result={configured:Boolean(env.DB&&env.REAPER_SIGNING_KEY_PKCS8&&(env.REAPER_OPERATIONAL_JSON===undefined||env.REAPER_OPERATIONAL_JSON)),signing_valid:false,operations_ready:false,database_ready:false};
+  if(!result.configured)return result;
+  try{await settings(env);result.signing_valid=result.operations_ready=true;}catch{return result;}
+  try{await env.DB.prepare('SELECT identity FROM reaper_v85_nonces LIMIT 1').all();result.database_ready=true;}catch{}
+  return result;
+}
+
+return {handleV86,operationalHealth};
+})();
 const worker = {
   async fetch(request, env) {
     const url = new URL(request.url);
-    const bootstrap = await handleV85(request, env, async (key, device_id) => {
+    const verifyBootstrap = async (key, device_id) => {
       const verifyURL = new URL('/v1/license/verify', request.url);
       const response = await worker.fetch(new Request(verifyURL, {
         method: 'POST', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({key, device_id})
       }), env);
       return response.ok ? response.json() : null;
-    });
+    };
+    const operational = await handleV86(request, env, verifyBootstrap);
+    if (operational) return operational;
+    const bootstrap = await handleV85(request, env, verifyBootstrap);
     if (bootstrap) return bootstrap;
 
     if (
@@ -26,7 +133,8 @@ const worker = {
         service: "vip-reaper",
         admin_token_configured: Boolean(env.ADMIN_TOKEN),
         maintenance: maintenance.enabled,
-        bootstrap: await bootstrapHealth(env)
+        bootstrap: await bootstrapHealth(env),
+        operational: await operationalHealth(env)
       });
     }
 
