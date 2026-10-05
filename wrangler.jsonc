@@ -1,19 +1,15 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "vip-reaper",
+  "name": "license-server",
   "main": "server.js",
   "compatibility_date": "2026-08-12",
   "assets": {
     "directory": ".",
     "binding": "ASSETS",
-    "exclude": [
-      "node_modules/**",
-      ".git/**",
-      "*.db",
-      "*.db-*",
-      "server.js",
-      "wrangler.jsonc",
-      "migrations/**"
+    "run_worker_first": [
+      "/v85/*",
+      "/v1/*",
+      "/health"
     ]
   },
   "d1_databases": [
@@ -27,5 +23,11 @@
     "crons": [
       "*/15 * * * *"
     ]
-  }
+  },
+  "r2_buckets": [
+    {
+      "binding": "REAPER_PAYLOADS",
+      "bucket_name": "reaper-v85-private"
+    }
+  ]
 }
