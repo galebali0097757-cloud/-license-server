@@ -102,7 +102,7 @@ async function operationalHealth(env){
 }
 
 
-const V88_BUILD_ID='74085bed5f542325ea29b3e245c2fa02';
+const V88_BUILD_ID='6cec1fbea9fe97b4ae86d85fb4656f42';
 function v88Hex64(values){
   return values.map(v=>BigInt(v).toString(16).padStart(16,'0')).join('');
 }
