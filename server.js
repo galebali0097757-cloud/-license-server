@@ -109,7 +109,10 @@ function v88Hex64(values){
 async function v88Operational(env){
   const {c}=await settings(env);
   if(!Array.isArray(c.operations)||c.operations.length!==65)throw Error('v88 operations');
-  const values=[...c.operations,57697588,40,36,44,28,c.operations[32],180];
+  // c.operations[64] is the legacy v86 startup timeout, not LegacyAimState.
+  // v88 keeps only indices 0..63 from v86, then inserts the server-owned LegacyAimState
+  // before the new draw/ESP fields and the final startup timeout.
+  const values=[...c.operations.slice(0,64),93633800,57697588,40,36,44,28,c.operations[32],180];
   if(values.length!==72)throw Error('v88 count');
   return v88Hex64(values);
 }
