@@ -1,7 +1,4 @@
-// Reaper v87 server-owned operational table for licensed sessions only.
-const REAPER_V87_OPERATIONAL = "00000000041dcb54000000000594c0d3000000000594c0d1000000000594c0d0000000000594c0d4000000000594c0e800000000058e031c000000000371dc1000000000058e03b4000000000594a8980000000003732ef800000000037309c4000000000594baa80000000002eff2c80000000002eff1c00000000003733c8000000000032282500000000003228350000000000594a5bc000000000594bd900000000005949f80000000000594bd980000000003705dd800000000031fc11000000000031f9d180000000003217a000000000003627ed000000000036281bc00000000000000100000000000000030000000000000003000000000000000a000000000000004f8000000000000067c000000000000070d000000000000184000000000000011340000000000000e600000000000000e7c0000000000000a590000000000000980000000000000099800000000000000e8000000000000051000000000000002080000000000000548000000000000053000000000000004e00000000000002130000000000000262800000000000005e8000000000000138000000000000005600000000000000cf0000000000000111800000000000001f80000000003705ee8000000000370882000000000031fc11000000000031faf000000000003217a000000000003730a380000000005949fa00000000003605b9c000000000594bd08000000000370653400000000000000280000000000000024000000000000002c000000000000001c00000000000004f800000000000000b4";
-
-const {handleV86,operationalHealth}=(()=>{
+const {handleV86,operationalHealth,v88Operational,v88Lease}=(()=>{
 // Operational configuration is encrypted at rest; only the existing Worker signing secret can open it.
 const SEALED_OPERATIONAL_CONFIG={"version":1,"salt":"dce1f1e9920b66c6d1d0760723188d2c","iv":"5b9cc4bb636adea14ff36af6","data":"gE0QRBZ+H7VYEt7uq/fzT1qJ1qejiK1eTbzNnwSdwVaTwOMZ0jgyM57UIKeXtw/9RxeJRil+fpmo+mICxBHW6BFMMxxwdzQv0WBzlPkGp0LDDgP+eA4fKfDHN8y4xhrGZXxUil1GghwEeBzIw1Tdhoz8i0pHkcxbHWoi+wUrrDXRkgQhAXFMdKxu/l6/YrT0YHkIB/T7VQW6H52cLsnrck12ruVVNYWN5NBo8qPTUwcZmfgSXfLREVkPDUModTzH8Vdw75S3yC46KJz0wfd1sNXvMyT8gghC60LrR3HqklBxqjAUvSbSJQiom58eSsPk04caXbAsiMhGqhG+ZZHKzMXft+bTe3go7GO8K8MFNU76MBF3+ett7BJflZqxXRy+s85Mw6zJ/KWMwRfR3XXTpgSmyLnJQl82ITwqw01D2G+PfEyCizNsc0Qs1LuJ42Hwgs5lTO//h/H1uo2jEO975myyA0fZd+ZQoU/lZJF+5Si5KNzN6O+ZW3sKRQFkWED+FPvSEFDETZhnRzRJOIaciFHFqhwCGGd9xh+9S/bCVpziivSMy/A5/LF2VItzLS3Afs9Gw0ZFp6R9vNQmdzhnsS7NSyZnYTrOb+1pHWJa55fj9Yyhct7l12j6oPRQ5Op90qlhxiZr8xdKVi+tSoJaoQkbjyvzXBJm9+LihVUtCfG9Igh3HpO8y1N9iMgpq76U4pFfLfgrzhiFTPCRd9h8fTwIL6FguOUJ/UVufjS+nCdO0zEPybuBkvlFBASniPk9v1i8HgO5/J2dtiRWoHlh+yTtgB7kROqgRcE13chfLuvD9zXN67NnoAuCOpqFjhAsakvz7/A/eHNBmNyRoD3wdrK1V7NU8dmhx5NtSjWHWoCC2UJKlUCnOXcfFZmJihEjybA2wP7sHgHXVhp3DM6kyD7W4FBFXaJpg84rSA8QA+anEQn7VgwFflhN2OLHar6Su1r7ro/a8IJdjLcms4sXoFbIK/tCeE0bBXsWx+KOaTCEMg22uL3pVSZxPR5arwQLeiqrgJvYI5ak3ICMzLuRJzlfOP3qwLDpf/dGEB0436QwYN5pScxzrxNHRUyoA3sKhjUOIiXiYJihlSdJewXMna/yIxiSA6ElxE5brnZGyCgD9xthCIs8pAa/5dUw3SGQqZTJe9gnpCjbmQ=="};
 const COUNT=65,START=216,SIZE=START+COUNT*8;
@@ -103,7 +100,49 @@ async function operationalHealth(env){
   return result;
 }
 
-return {handleV86,operationalHealth};
+
+const V88_BUILD_ID='2749f4329d746a1c219b89f4f02e6755';
+function v88Hex64(values){
+  return values.map(v=>BigInt(v).toString(16).padStart(16,'0')).join('');
+}
+async function v88Operational(env){
+  const {c}=await settings(env);
+  if(!Array.isArray(c.operations)||c.operations.length!==65)throw Error('v88 operations');
+  const values=[...c.operations,57697588,40,36,44,28,c.operations[32],180];
+  if(values.length!==72)throw Error('v88 count');
+  return v88Hex64(values);
+}
+function v88U32(out,off,v){
+  const d=new DataView(out.buffer,out.byteOffset,out.byteLength);d.setUint32(off,v,true);
+}
+function v88U64(out,off,v){
+  const d=new DataView(out.buffer,out.byteOffset,out.byteLength);d.setBigUint64(off,BigInt(v),true);
+}
+async function v88Lease(env,req,licenseExpiry){
+  if(!req||req.protocol!=='r88'||req.build_id!==V88_BUILD_ID||typeof req.nonce!=='string'||!/^[0-9a-f]{64}$/.test(req.nonce))throw Error('v88 request');
+  if(typeof req.device_id!=='string'||typeof req.key!=='string')throw Error('v88 identity');
+  const {key}=await settings(env);
+  const operational=await v88Operational(env);
+  const now=Math.floor(Date.now()/1000), exp=Math.min(now+180,licenseExpiry);
+  if(!Number.isSafeInteger(licenseExpiry)||exp<=now)throw Error('v88 expiry');
+  const msg=new Uint8Array(180);
+  msg.set(encoder.encode('R88SESS1'),0);v88U32(msg,8,1);
+  msg.set(unhex(V88_BUILD_ID,16),12);msg.set(unhex(req.nonce,32),28);
+  msg.set(await digest(req.device_id),60);msg.set(await digest(req.key),92);
+  v88U64(msg,124,now);v88U64(msg,132,exp);v88U64(msg,140,licenseExpiry);
+  msg.set(await digest(operational),148);
+  const raw=await crypto.subtle.sign({name:'ECDSA',hash:'SHA-256'},key,msg);
+  const der=signatureDER(raw);
+  return {
+    operational,
+    session_nonce:req.nonce,
+    session_issued:now,
+    session_expires:exp,
+    session_signature:hex(der)
+  };
+}
+
+return {handleV86,operationalHealth,v88Operational,v88Lease};
 })();
 const worker = {
   async fetch(request, env) {
@@ -393,6 +432,22 @@ const worker = {
           .bind(key)
           .run();
 
+        let secure = { operational: await v88Operational(env) };
+        if (body?.protocol === "r88") {
+          const licenseExpiry = Math.floor(Date.parse(row.expires_at) / 1000);
+          try {
+            secure = await v88Lease(env, {
+              protocol: body.protocol,
+              build_id: body.build_id,
+              nonce: body.nonce,
+              device_id: deviceId,
+              key
+            }, licenseExpiry);
+          } catch {
+            return json({ ok: false, error: "invalid_secure_session" }, 403);
+          }
+        }
+
         return json({
           ok: true,
           key: row.key,
@@ -400,7 +455,7 @@ const worker = {
           device_mode: row.device_mode,
           device_bound: Boolean(row.device_hash),
           bound_now: boundNow,
-          operational: REAPER_V87_OPERATIONAL
+          ...secure
         });
       } catch (e) {
         return json(
