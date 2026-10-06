@@ -370,7 +370,7 @@ const worker = {
           new Date(row.expires_at) <= new Date()
         ) {
           await env.DB.prepare(
-            "DELETE FROM licenses WHERE key=?"
+            "UPDATE licenses SET status='expired' WHERE key=?"
           )
             .bind(key)
             .run();
@@ -894,8 +894,10 @@ async function getMaintenance(env) {
 
 async function cleanupExpired(env) {
   await env.DB.prepare(
-    `DELETE FROM licenses
-     WHERE expires_at IS NOT NULL
+    `UPDATE licenses
+     SET status='expired'
+     WHERE status='active'
+     AND expires_at IS NOT NULL
      AND datetime(expires_at)
          <= datetime('now')`
   ).run();
