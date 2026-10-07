@@ -39,7 +39,11 @@ readiness. It returns no program bytes. Production signing-key rotation
 requires resealing the engine and updating the matching pinned client.
 
 Validation runs the actual Worker with test-only keys and a test-recipient
-envelope. Live Cloudflare execution and the matching compiled client still
-require verification before merging this draft. Delivered client code can be
-inspected after authorized delivery; this protocol does not make client code
-impossible to reverse engineer.
+envelope. The matching compiled ARM64 client accepts that response, executes
+the downloaded initialization, registers its callbacks and rejects a missing,
+modified or expired engine. Parser, session renewal, Hide/Skin/logo and signed
+integrity checks pass. Engine lifetime is also exercised with two writers and
+four readers under AddressSanitizer, and the exact replay SQL is checked with
+concurrent SQLite connections. Live production requests and an iOS device have
+not been verified. Delivered client code can be inspected after authorized
+delivery; this protocol does not make client code impossible to reverse engineer.
