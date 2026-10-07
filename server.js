@@ -1,5 +1,6 @@
+// r93 server initialization: encrypted at rest and session-bound after licensing.
 // v88 deployment stamp: 2026-10-06 secure-session-v2
-const {handleV86,operationalHealth,v88Operational,v88Lease}=(()=>{
+const {handleV86,operationalHealth,v88Operational,v88Lease,r93Lease,r93Health,R93_ENGINE_SEAL}=(()=>{
 // Operational configuration is encrypted at rest; only the existing Worker signing secret can open it.
 const SEALED_OPERATIONAL_CONFIG={"version":1,"salt":"dce1f1e9920b66c6d1d0760723188d2c","iv":"5b9cc4bb636adea14ff36af6","data":"gE0QRBZ+H7VYEt7uq/fzT1qJ1qejiK1eTbzNnwSdwVaTwOMZ0jgyM57UIKeXtw/9RxeJRil+fpmo+mICxBHW6BFMMxxwdzQv0WBzlPkGp0LDDgP+eA4fKfDHN8y4xhrGZXxUil1GghwEeBzIw1Tdhoz8i0pHkcxbHWoi+wUrrDXRkgQhAXFMdKxu/l6/YrT0YHkIB/T7VQW6H52cLsnrck12ruVVNYWN5NBo8qPTUwcZmfgSXfLREVkPDUModTzH8Vdw75S3yC46KJz0wfd1sNXvMyT8gghC60LrR3HqklBxqjAUvSbSJQiom58eSsPk04caXbAsiMhGqhG+ZZHKzMXft+bTe3go7GO8K8MFNU76MBF3+ett7BJflZqxXRy+s85Mw6zJ/KWMwRfR3XXTpgSmyLnJQl82ITwqw01D2G+PfEyCizNsc0Qs1LuJ42Hwgs5lTO//h/H1uo2jEO975myyA0fZd+ZQoU/lZJF+5Si5KNzN6O+ZW3sKRQFkWED+FPvSEFDETZhnRzRJOIaciFHFqhwCGGd9xh+9S/bCVpziivSMy/A5/LF2VItzLS3Afs9Gw0ZFp6R9vNQmdzhnsS7NSyZnYTrOb+1pHWJa55fj9Yyhct7l12j6oPRQ5Op90qlhxiZr8xdKVi+tSoJaoQkbjyvzXBJm9+LihVUtCfG9Igh3HpO8y1N9iMgpq76U4pFfLfgrzhiFTPCRd9h8fTwIL6FguOUJ/UVufjS+nCdO0zEPybuBkvlFBASniPk9v1i8HgO5/J2dtiRWoHlh+yTtgB7kROqgRcE13chfLuvD9zXN67NnoAuCOpqFjhAsakvz7/A/eHNBmNyRoD3wdrK1V7NU8dmhx5NtSjWHWoCC2UJKlUCnOXcfFZmJihEjybA2wP7sHgHXVhp3DM6kyD7W4FBFXaJpg84rSA8QA+anEQn7VgwFflhN2OLHar6Su1r7ro/a8IJdjLcms4sXoFbIK/tCeE0bBXsWx+KOaTCEMg22uL3pVSZxPR5arwQLeiqrgJvYI5ak3ICMzLuRJzlfOP3qwLDpf/dGEB0436QwYN5pScxzrxNHRUyoA3sKhjUOIiXiYJihlSdJewXMna/yIxiSA6ElxE5brnZGyCgD9xthCIs8pAa/5dUw3SGQqZTJe9gnpCjbmQ=="};
 const COUNT=65,START=216,SIZE=START+COUNT*8;
@@ -146,7 +147,57 @@ async function v88Lease(env,req,licenseExpiry){
   };
 }
 
-return {handleV86,operationalHealth,v88Operational,v88Lease};
+
+const R93_ENGINE_SEAL={"version":1,"build_id":"90b9a730b9cc83766a4bc7451e675aa5","program_sha256":"1959b5d0889e20b90cd5d19a26d3dc44ebb6ff2989e67e776e5b1db9a745c34b","program_size":1890,"ephemeral_public_x963":"04dd0799d7e47fe151bf32353ae508265c84d61b27051972a62da58b9e904296daad269b6670a3f60ff1e9403a0215fa11aa9a8a12c23cb876932db90f5f2f4aa3","salt":"da518750054c918777017e7dba9dc0658a6a749265f44daf3f75e2c8dbb49d9b","iv":"295565ca5d10038d1385d726","data":"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"};
+const R93_ENGINE_INFO='REAPER r93 server initialization engine ECDH HKDF-SHA256 AES-256-GCM v1';
+let r93CachedPEM,r93CachedEngine;
+async function r93OpenEngine(env){
+  const pem=env.REAPER_SIGNING_KEY_PKCS8;
+  if(r93CachedEngine&&r93CachedPEM===pem)return r93CachedEngine;
+  if(typeof pem!=='string'||!/^-----BEGIN PRIVATE KEY-----\s+[A-Za-z0-9+/=\s]+-----END PRIVATE KEY-----\s*$/.test(pem))throw Error('r93 signing');
+  const s=R93_ENGINE_SEAL;
+  if(s.version!==1||!Number.isSafeInteger(s.program_size)||s.program_size<48||s.program_size>4096)throw Error('r93 size');
+  const der=Uint8Array.from(atob(pem.replace(/-----[^-]+-----/g,'').replace(/\s/g,'')),x=>x.charCodeAt(0));
+  const own=await crypto.subtle.importKey('pkcs8',der,{name:'ECDH',namedCurve:'P-256'},false,['deriveBits']);
+  const peer=await crypto.subtle.importKey('raw',unhex(s.ephemeral_public_x963,65),{name:'ECDH',namedCurve:'P-256'},false,[]);
+  const shared=await crypto.subtle.deriveBits({name:'ECDH',public:peer},own,256);
+  const material=await crypto.subtle.importKey('raw',shared,'HKDF',false,['deriveKey']);
+  const aes=await crypto.subtle.deriveKey({name:'HKDF',hash:'SHA-256',salt:unhex(s.salt,32),info:encoder.encode(R93_ENGINE_INFO)},material,{name:'AES-GCM',length:256},false,['decrypt']);
+  const aad=encoder.encode(R93_ENGINE_INFO+'\0'+s.build_id+'\0'+s.program_sha256);
+  const cipher=Uint8Array.from(atob(s.data),x=>x.charCodeAt(0));
+  if(cipher.length!==s.program_size+16)throw Error('r93 cipher');
+  const p=new Uint8Array(await crypto.subtle.decrypt({name:'AES-GCM',iv:unhex(s.iv,12),additionalData:aad,tagLength:128},aes,cipher));
+  if(p.length!==s.program_size||hex(await digest(p))!==s.program_sha256)throw Error('r93 engine hash');
+  const v=new DataView(p.buffer,p.byteOffset,p.byteLength),count=v.getUint32(12,true),data=v.getUint32(24,true);
+  if(new TextDecoder().decode(p.slice(0,8))!=='R93INIT1'||v.getUint32(8,true)!==1||!count||count>192||data!==32+16*count||data>=p.length||v.getUint32(28,true)!==p.length||v.getUint32(16,true)>=count||v.getUint32(20,true)>=count)throw Error('r93 program');
+  r93CachedPEM=pem;r93CachedEngine=p;return p;
+}
+async function r93Lease(env,req,licenseExpiry){
+  if(!req||req.protocol!=='r93'||req.build_id!==R93_ENGINE_SEAL.build_id||typeof req.nonce!=='string'||!/^[0-9a-f]{64}$/.test(req.nonce)||typeof req.device_id!=='string'||!/^[A-Za-z0-9-]{1,180}$/.test(req.device_id)||typeof req.key!=='string')throw Error('r93 request');
+  const {key}=await settings(env),engine=await r93OpenEngine(env),operational=await v88Operational(env);
+  const now=Math.floor(Date.now()/1000),exp=Math.min(now+180,licenseExpiry);
+  if(!Number.isSafeInteger(licenseExpiry)||exp<=now)throw Error('r93 expiry');
+  await env.DB.prepare('CREATE TABLE IF NOT EXISTS reaper_r93_nonces (identity TEXT PRIMARY KEY, expires INTEGER NOT NULL)').run();
+  await env.DB.prepare('DELETE FROM reaper_r93_nonces WHERE expires <= ?').bind(now).run();
+  const identity=hex(await digest('r93\0'+req.build_id+'\0'+req.key+'\0'+req.device_id+'\0'+req.nonce));
+  const used=await env.DB.prepare('INSERT OR IGNORE INTO reaper_r93_nonces (identity, expires) SELECT ?, ? WHERE (SELECT COUNT(*) FROM reaper_r93_nonces) < 4096').bind(identity,exp).run();
+  if(used.meta?.changes!==1)throw Error('r93 replay');
+  const msg=new Uint8Array(212);
+  msg.set(encoder.encode('R93SESS1'));v88U32(msg,8,1);
+  msg.set(unhex(req.build_id,16),12);msg.set(unhex(req.nonce,32),28);
+  msg.set(await digest(req.device_id),60);msg.set(await digest(req.key),92);
+  v88U64(msg,124,now);v88U64(msg,132,exp);v88U64(msg,140,licenseExpiry);
+  msg.set(await digest(operational),148);msg.set(await digest(engine),180);
+  const signature=signatureDER(await crypto.subtle.sign({name:'ECDSA',hash:'SHA-256'},key,msg));
+  return {operational,engine:hex(engine),engine_sha256:hex(await digest(engine)),session_nonce:req.nonce,session_issued:now,session_expires:exp,session_signature:hex(signature)};
+}
+async function r93Health(env){
+  const result={protocol:'r93',build_id:R93_ENGINE_SEAL.build_id,program_sha256:R93_ENGINE_SEAL.program_sha256,program_ready:false};
+  try{await settings(env);await r93OpenEngine(env);result.program_ready=true;}catch{}
+  return result;
+}
+
+return {handleV86,operationalHealth,v88Operational,v88Lease,r93Lease,r93Health,R93_ENGINE_SEAL};
 })();
 const worker = {
   async fetch(request, env) {
@@ -180,7 +231,8 @@ const worker = {
         admin_token_configured: Boolean(env.ADMIN_TOKEN),
         maintenance: maintenance.enabled,
         bootstrap: await bootstrapHealth(env),
-        operational: await operationalHealth(env)
+        operational: await operationalHealth(env),
+        initialization: await r93Health(env)
       });
     }
 
@@ -311,7 +363,10 @@ const worker = {
 
         await cleanupExpired(env);
 
-        const body = await request.json();
+        const body = await boundedJSON(request);
+        if (body?.protocol === "r93" && (body.build_id !== R93_ENGINE_SEAL.build_id || typeof body.nonce !== "string" || !/^[0-9a-f]{64}$/.test(body.nonce))) {
+          return json({ok:false,error:"invalid_secure_session"},403);
+        }
 
         const key = body?.key;
 
@@ -437,10 +492,10 @@ const worker = {
           .run();
 
         let secure = { operational: await v88Operational(env) };
-        if (body?.protocol === "r88") {
+        if (body?.protocol === "r88" || body?.protocol === "r93") {
           const licenseExpiry = Math.floor(Date.parse(row.expires_at) / 1000);
           try {
-            secure = await v88Lease(env, {
+            secure = await (body.protocol === "r93" ? r93Lease : v88Lease)(env, {
               protocol: body.protocol,
               build_id: body.build_id,
               nonce: body.nonce,
@@ -1114,3 +1169,4 @@ async function bootstrapHealth(env) {
   } catch {}
   return result;
 }
+
