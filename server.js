@@ -499,9 +499,8 @@ const worker = {
             : MAINTENANCE_MESSAGE;
 
         await ensureSettings(env);
-
-        await env.DB.prepare(
-          `INSERT INTO server_settings
+        await env.DB.batch([
+          env.DB.prepare(`INSERT INTO server_settings
            (name,value,updated_at)
            VALUES
            ('maintenance_enabled',?,datetime('now'))
@@ -510,11 +509,8 @@ const worker = {
            value=excluded.value,
            updated_at=datetime('now')`
         )
-          .bind(body.enabled ? "1" : "0")
-          .run();
-
-        await env.DB.prepare(
-          `INSERT INTO server_settings
+          .bind(body.enabled ? "1" : "0"),
+          env.DB.prepare(`INSERT INTO server_settings
            (name,value,updated_at)
            VALUES
            ('maintenance_message',?,datetime('now'))
@@ -524,7 +520,7 @@ const worker = {
            updated_at=datetime('now')`
         )
           .bind(message)
-          .run();
+        ]);
 
         return json({
           ok: true,
@@ -643,12 +639,13 @@ const worker = {
           row.expires_at &&
           new Date(row.expires_at) <= new Date()
         ) {
-          await env.DB.prepare(
-            "UPDATE licenses SET status='expired' WHERE key=?"
+          const expired = await env.DB.prepare(
+            "UPDATE licenses SET status='expired' WHERE key=? AND julianday(expires_at)<=julianday('now') AND NOT EXISTS (SELECT 1 FROM server_settings WHERE name='maintenance_enabled' AND value='1')"
           )
             .bind(key)
             .run();
 
+          if(expired.meta?.changes!==1) return json({ok:false,error:"server_state_changed"},503);
           return json(
             {
               ok: false,
@@ -726,6 +723,11 @@ const worker = {
           }
         }
 
+        const latestMaintenance=await getMaintenance(env);
+        if(latestMaintenance.enabled) return json({ok:false,maintenance:true,error:"maintenance",message:latestMaintenance.message},503);
+        const finalLicense=await env.DB.prepare('SELECT status,expires_at FROM licenses WHERE key=?').bind(key).first();
+        if(!finalLicense||finalLicense.status!==row.status||finalLicense.expires_at!==row.expires_at)
+          return json({ok:false,error:"server_state_changed"},503);
         return json({
           ok: true,
           key: row.key,
@@ -818,10 +820,12 @@ const worker = {
       }
 
       const result = await stmt.all();
-
+      const paused=await env.DB.prepare('SELECT key,remaining_ms FROM license_maintenance_pause').all();
+      const remaining=new Map((paused.results||[]).map(p=>[p.key,p.remaining_ms]));
       return json({
         ok: true,
-        licenses: result.results || []
+        licenses: (result.results || []).map(row=>({...row,
+          time_paused:remaining.has(row.key),remaining_ms:remaining.get(row.key)??null}))
       });
     }
 
@@ -1102,14 +1106,86 @@ const MAINTENANCE_MESSAGE =
 // إنشاء جدول إعدادات السيرفر تلقائياً
 // ==========================================
 
+// The pause ledger and transition triggers live in D1, not Worker memory.
+// Each maintenance toggle and its license updates commit atomically.
+const settingsReady = new WeakMap();
+const PAUSE_SCHEMA = [
+  `CREATE TABLE IF NOT EXISTS server_settings (
+     name TEXT PRIMARY KEY, value TEXT NOT NULL,
+     updated_at TEXT DEFAULT (datetime('now'))
+   )`,
+  `CREATE TABLE IF NOT EXISTS license_maintenance_pause (
+     key TEXT PRIMARY KEY, remaining_ms INTEGER NOT NULL CHECK(remaining_ms > 0)
+   )`,
+  `CREATE TRIGGER IF NOT EXISTS maintenance_pause_insert_v111
+   AFTER INSERT ON server_settings
+   WHEN NEW.name='maintenance_enabled' AND NEW.value='1'
+   BEGIN
+     INSERT OR IGNORE INTO license_maintenance_pause(key,remaining_ms)
+     SELECT key,MAX(1,CAST(ROUND((julianday(expires_at)-julianday('now'))*86400000) AS INTEGER))
+     FROM licenses WHERE status='active' AND julianday(expires_at)>julianday('now');
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS maintenance_pause_update_v111
+   AFTER UPDATE OF value ON server_settings
+   WHEN NEW.name='maintenance_enabled' AND NEW.value='1' AND OLD.value!='1'
+   BEGIN
+     INSERT OR IGNORE INTO license_maintenance_pause(key,remaining_ms)
+     SELECT key,MAX(1,CAST(ROUND((julianday(expires_at)-julianday('now'))*86400000) AS INTEGER))
+     FROM licenses WHERE status='active' AND julianday(expires_at)>julianday('now');
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS maintenance_resume_v111
+   AFTER UPDATE OF value ON server_settings
+   WHEN NEW.name='maintenance_enabled' AND NEW.value!='1' AND OLD.value='1'
+   BEGIN
+     UPDATE licenses SET expires_at=strftime('%Y-%m-%dT%H:%M:%fZ',
+       julianday('now')+(SELECT remaining_ms FROM license_maintenance_pause p WHERE p.key=licenses.key)/86400000.0)
+     WHERE key IN (SELECT key FROM license_maintenance_pause);
+     DELETE FROM license_maintenance_pause;
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS maintenance_new_license_v111
+   AFTER INSERT ON licenses
+   WHEN NEW.status='active' AND julianday(NEW.expires_at)>julianday('now')
+     AND EXISTS(SELECT 1 FROM server_settings WHERE name='maintenance_enabled' AND value='1')
+   BEGIN
+     INSERT OR REPLACE INTO license_maintenance_pause(key,remaining_ms)
+     VALUES(NEW.key,MAX(1,CAST(ROUND((julianday(NEW.expires_at)-julianday('now'))*86400000) AS INTEGER)));
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS maintenance_reset_license_v111
+   AFTER UPDATE OF expires_at ON licenses
+   WHEN EXISTS(SELECT 1 FROM server_settings WHERE name='maintenance_enabled' AND value='1')
+   BEGIN
+     DELETE FROM license_maintenance_pause WHERE key=NEW.key;
+     INSERT INTO license_maintenance_pause(key,remaining_ms)
+     SELECT NEW.key,MAX(1,CAST(ROUND((julianday(NEW.expires_at)-julianday('now'))*86400000) AS INTEGER))
+     WHERE NEW.status='active' AND julianday(NEW.expires_at)>julianday('now');
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS maintenance_activate_license_v111
+   AFTER UPDATE OF status ON licenses
+   WHEN NEW.status='active' AND OLD.status!='active' AND julianday(NEW.expires_at)>julianday('now')
+     AND EXISTS(SELECT 1 FROM server_settings WHERE name='maintenance_enabled' AND value='1')
+   BEGIN
+     INSERT OR IGNORE INTO license_maintenance_pause(key,remaining_ms)
+     VALUES(NEW.key,MAX(1,CAST(ROUND((julianday(NEW.expires_at)-julianday('now'))*86400000) AS INTEGER)));
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS maintenance_delete_license_v111
+   AFTER DELETE ON licenses BEGIN
+     DELETE FROM license_maintenance_pause WHERE key=OLD.key;
+   END`,
+  // One-time adoption if a previous release was already in maintenance.
+  // No already-expired license is restored by this migration.
+  `INSERT OR IGNORE INTO license_maintenance_pause(key,remaining_ms)
+   SELECT key,MAX(1,CAST(ROUND((julianday(expires_at)-julianday('now'))*86400000) AS INTEGER))
+   FROM licenses WHERE status='active' AND julianday(expires_at)>julianday('now')
+   AND EXISTS(SELECT 1 FROM server_settings WHERE name='maintenance_enabled' AND value='1')`
+];
 async function ensureSettings(env) {
-  await env.DB.prepare(
-    `CREATE TABLE IF NOT EXISTS server_settings (
-       name TEXT PRIMARY KEY,
-       value TEXT NOT NULL,
-       updated_at TEXT DEFAULT (datetime('now'))
-     )`
-  ).run();
+  let pending=settingsReady.get(env.DB);
+  if(!pending){
+    pending=env.DB.batch(PAUSE_SCHEMA.map(sql=>env.DB.prepare(sql)));
+    settingsReady.set(env.DB,pending);
+    pending.catch(()=>settingsReady.delete(env.DB));
+  }
+  await pending;
 }
 
 
@@ -1167,10 +1243,12 @@ async function getMaintenance(env) {
 // ==========================================
 
 async function cleanupExpired(env) {
+  await ensureSettings(env);
   await env.DB.prepare(
     `UPDATE licenses
      SET status='expired'
      WHERE status='active'
+     AND NOT EXISTS (SELECT 1 FROM server_settings WHERE name='maintenance_enabled' AND value='1')
      AND expires_at IS NOT NULL
      AND datetime(expires_at)
          <= datetime('now')`
@@ -1388,4 +1466,5 @@ async function bootstrapHealth(env) {
   } catch {}
   return result;
 }
+
 
