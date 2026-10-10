@@ -374,8 +374,9 @@ async function r97OpenEngine(env){
 }
 async function r97Lease(env,req,licenseExpiry){
   if(!req||req.protocol!=='r97'||req.build_id!==R97_ENGINE_SEAL.build_id||typeof req.nonce!=='string'||!/^[0-9a-f]{64}$/.test(req.nonce)||typeof req.device_id!=='string'||!/^[A-Za-z0-9-]{1,180}$/.test(req.device_id)||typeof req.key!=='string')throw Error('r97 request');
-  const {key}=await settings(env),engine=await r97OpenEngine(env),operational=await v88Operational(env);
-  const now=Math.floor(Date.now()/1000),exp=Math.min(now+180,licenseExpiry);
+  const {key}=await settings(env),statusOnly=req.check_only===true;
+  const engine=statusOnly?null:await r97OpenEngine(env),operational=statusOnly?null:await v88Operational(env);
+  const now=Math.floor(Date.now()/1000),exp=Math.min(now+(statusOnly?30:180),licenseExpiry);
   if(!Number.isSafeInteger(licenseExpiry)||exp<=now)throw Error('r97 expiry');
   await env.DB.prepare('CREATE TABLE IF NOT EXISTS reaper_r97_nonces (identity TEXT PRIMARY KEY, expires INTEGER NOT NULL)').run();
   await env.DB.prepare('DELETE FROM reaper_r97_nonces WHERE expires <= ?').bind(now).run();
@@ -383,13 +384,14 @@ async function r97Lease(env,req,licenseExpiry){
   const used=await env.DB.prepare('INSERT OR IGNORE INTO reaper_r97_nonces (identity, expires) SELECT ?, ? WHERE (SELECT COUNT(*) FROM reaper_r97_nonces) < 4096').bind(identity,exp).run();
   if(used.meta?.changes!==1)throw Error('r97 replay');
   const msg=new Uint8Array(212);
-  msg.set(encoder.encode('R97SESS1'));v88U32(msg,8,1);
+  msg.set(encoder.encode(statusOnly?'R112CHK1':'R97SESS1'));v88U32(msg,8,1);
   msg.set(unhex(req.build_id,16),12);msg.set(unhex(req.nonce,32),28);
   msg.set(await digest(req.device_id),60);msg.set(await digest(req.key),92);
   v88U64(msg,124,now);v88U64(msg,132,exp);v88U64(msg,140,licenseExpiry);
-  msg.set(await digest(operational),148);msg.set(await digest(engine),180);
+  if(!statusOnly){msg.set(await digest(operational),148);msg.set(await digest(engine),180);}
   const signature=signatureDER(await crypto.subtle.sign({name:'ECDSA',hash:'SHA-256'},key,msg));
-  return {operational,engine:hex(engine),engine_sha256:hex(await digest(engine)),session_nonce:req.nonce,session_issued:now,session_expires:exp,session_signature:hex(signature)};
+  const receipt={session_nonce:req.nonce,session_issued:now,session_expires:exp,session_signature:hex(signature)};
+  return statusOnly?{check_only:true,...receipt}:{operational,engine:hex(engine),engine_sha256:hex(await digest(engine)),...receipt};
 }
 async function r97Health(env){
   const result={protocol:'r97',build_id:R97_ENGINE_SEAL.build_id,program_sha256:R97_ENGINE_SEAL.program_sha256,program_ready:false};
@@ -583,6 +585,8 @@ const worker = {
           return json({ok:false,error:"invalid_secure_session"},403);
         }
 
+        if(body?.check_only!==undefined&&(body.protocol!=='r97'||typeof body.check_only!=='boolean'))
+          return json({ok:false,error:'invalid_secure_session'},403);
         const key = body?.key;
 
         const deviceId =
@@ -707,7 +711,7 @@ const worker = {
           .bind(key)
           .run();
 
-        let secure = { operational: await v88Operational(env) };
+        let secure = body?.check_only===true?{}:{operational:await v88Operational(env)};
         if (body?.protocol === "r88" || body?.protocol === "r93" || body?.protocol === "r94" || body?.protocol === "r95" || body?.protocol === "r96" || body?.protocol === "r97") {
           const licenseExpiry = Math.floor(Date.parse(row.expires_at) / 1000);
           try {
@@ -716,7 +720,8 @@ const worker = {
               build_id: body.build_id,
               nonce: body.nonce,
               device_id: deviceId,
-              key
+              key,
+              check_only: body.check_only===true
             }, licenseExpiry);
           } catch {
             return json({ ok: false, error: "invalid_secure_session" }, 403);
@@ -726,8 +731,9 @@ const worker = {
         const latestMaintenance=await getMaintenance(env);
         if(latestMaintenance.enabled) return json({ok:false,maintenance:true,error:"maintenance",message:latestMaintenance.message},503);
         const finalLicense=await env.DB.prepare('SELECT status,expires_at FROM licenses WHERE key=?').bind(key).first();
-        if(!finalLicense||finalLicense.status!==row.status||finalLicense.expires_at!==row.expires_at)
-          return json({ok:false,error:"server_state_changed"},503);
+        if(!finalLicense)return json({ok:false,error:'invalid_license'},404);
+        if(finalLicense.status!=='active')return json({ok:false,error:'license_'+finalLicense.status},403);
+        if(finalLicense.expires_at!==row.expires_at)return json({ok:false,error:'server_state_changed'},503);
         return json({
           ok: true,
           key: row.key,
@@ -950,7 +956,8 @@ const worker = {
       }
 
       const key =
-        decodeURIComponent(m[1]);
+        decodeURIComponent(m[1]).trim().toUpperCase();
+      if(!isValidKey(key))return json({ok:false,error:'invalid_key'},400);
 
       const action = m[2];
 
@@ -965,9 +972,10 @@ const worker = {
             .bind(key)
             .run();
 
-        return json({
-          ok: r.meta?.changes === 1
-        });
+        const stopped=await env.DB.prepare('SELECT status,expires_at FROM licenses WHERE key=?').bind(key).first();
+        if(!stopped)return json({ok:false,error:'invalid_license'},404);
+        if(stopped.status!=='revoked')return json({ok:false,error:'server_state_changed'},409);
+        return json({ok:true,key,status:stopped.status,expires_at:stopped.expires_at});
       }
 
       // تفعيل مفتاح
@@ -1298,7 +1306,8 @@ function json(
       status,
       headers: {
         "Content-Type":
-          "application/json; charset=utf-8"
+          "application/json; charset=utf-8",
+        "Cache-Control": "no-store"
       }
     }
   );
