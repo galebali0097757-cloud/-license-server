@@ -461,6 +461,7 @@ async function api(
   opt = {}
 ){
 
+  opt.cache = 'no-store';
   opt.headers = {
     ...(opt.headers || {}),
     "Authorization":
@@ -481,7 +482,7 @@ async function api(
     j = await r.json();
   }catch{}
 
-  if(!r.ok){
+  if(!r.ok || j.ok !== true){
     throw Error(
       j.error ||
       "request_failed"
@@ -1050,7 +1051,7 @@ async function act(
 
   try{
 
-    await api(
+    const result = await api(
       "/v1/admin/licenses/" +
       encodeURIComponent(k) +
       "/" +
@@ -1062,7 +1063,8 @@ async function act(
     );
 
 
-    load();
+    if(a === 'revoke' && result.status !== 'revoked')throw Error('revoke_not_confirmed');
+    await load();
 
 
   }catch(e){
